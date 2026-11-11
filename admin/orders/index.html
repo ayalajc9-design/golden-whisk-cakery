@@ -11,7 +11,7 @@
 <body>
 <nav class="adminnav" aria-label="Back office">
   <strong>Golden Whisk back office</strong>
-  <a href="../">Home</a><a href="../orders/" class="on">Orders &amp; customers</a><a href="../costing/">Cake costing</a><a href="../marketing/">Marketing</a>
+  <a href="../">Home</a><a href="../orders/" class="on">Orders &amp; customers</a><a href="../costing/">Cake costing</a><a href="../labor/">Labor &amp; time</a><a href="../marketing/">Marketing</a>
   <a class="site" href="../../">View public site</a>
 </nav>
 <div class="wrap">
@@ -83,6 +83,7 @@
   </section>
 </div>
 
+<script src="../cost.js"></script>
 <script>
 (function () {
   "use strict";
@@ -97,15 +98,14 @@
   var state = blank(), editing = null;
   try { var raw = localStorage.getItem(KEY); if (raw) state = Object.assign(blank(), JSON.parse(raw)); } catch (e) {}
 
-  // Cakes come from the Cake costing page (same browser): cost = fixed cost per cake + that cake's custom items.
+  // Cakes come from the Cake costing page (same browser): cost = fixed cost per cake + that cake's custom items + labor.
   function costedCakes() {
     var out = {};
-    try {
-      var c = JSON.parse(localStorage.getItem("gwc-costing-v2") || "null"); if (!c) return out;
-      var sum = function (l) { return (l || []).reduce(function (s, x) { return s + num(x.amount); }, 0); }, fixed = sum(c.fixed);
-      (c.cakes || []).forEach(function (k) { var cost = fixed + sum(k.lines), actual = String(k.price == null ? "" : k.price).trim() !== "";
-        out[k.id] = { name: k.name || "Untitled cake", cost: cost, price: actual ? k.price : (num(k.markup) > 0 ? (cost * (1 + num(k.markup) / 100)).toFixed(2) : "") }; });
-    } catch (e) {}
+    var c = GWC.load();
+    c.cakes.forEach(function (k) {
+      var f = GWC.figures(c, k);
+      out[k.id] = { name: k.name || "Untitled cake", cost: f.cost, price: f.actual ? k.price : (num(k.markup) > 0 ? f.suggested.toFixed(2) : "") };
+    });
     return out;
   }
   var cakes = {};

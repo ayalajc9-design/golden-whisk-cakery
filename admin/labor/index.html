@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Labor &amp; Time - Golden Whisk Cakery</title>
+  <link rel="stylesheet" href="../../styles.css">
+  <link rel="stylesheet" href="../admin.css">
+</head>
+<body>
+<nav class="adminnav" aria-label="Back office">
+  <strong>Golden Whisk back office</strong>
+  <a href="../">Home</a><a href="../orders/">Orders &amp; customers</a><a href="../costing/">Cake costing</a><a href="../labor/" class="on">Labor &amp; time</a><a href="../marketing/">Marketing</a>
+  <a class="site" href="../../">View public site</a>
+</nav>
+<div class="wrap">
+  <div class="top">
+    <h1>Labor &amp; Time</h1>
+    <span class="saved" id="saved"></span>
+  </div>
+  <p class="sub">Her time on each cake, turned into a labor cost that is built into the cake's total cost and profit. Saved in this browser on this device only, together with Cake costing.</p>
+
+  <section class="panel">
+    <h2>1. Hourly rate</h2>
+    <p class="hint">Set this once. It is what an hour of her work is worth, and it applies to every cake.</p>
+    <div class="fields">
+      <div><label for="wage">Hourly rate ($ per hour)</label><input id="wage" type="number" min="0" step="0.01" inputmode="decimal"></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>2. Time per cake</h2>
+    <p class="hint">How long each cake takes from start to finish: baking, decorating, cleanup. Cakes are added on the <a href="../costing/">Cake costing</a> tab.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Cake</th><th class="num">Hours</th><th class="num">Minutes</th><th class="num">Labor cost</th><th class="num">Total cost</th><th class="num">Profit</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>
+    <ul class="lines" style="margin-top:14px">
+      <li class="total"><span>Total time across all cakes</span><span id="tTime"></span></li>
+      <li class="total"><span>Total labor cost across all cakes</span><span id="tLabor"></span></li>
+    </ul>
+    <p class="note" style="margin:10px 4px 0">Total cost = fixed cost per cake + custom items + labor. Profit uses the price on the Cake costing tab.</p>
+  </section>
+</div>
+
+<script src="../cost.js"></script>
+<script>
+(function () {
+  "use strict";
+  var $ = function (s) { return document.querySelector(s); };
+  var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); };
+  var usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+  var state = GWC.load();
+
+  function save() {
+    try {
+      localStorage.setItem(GWC.KEY, JSON.stringify(state));
+      $("#saved").textContent = "Saved " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    } catch (e) { $("#saved").textContent = "Could not save in this browser"; }
+  }
+  function render() {
+    $("#wage").value = state.wage == null ? "" : state.wage;
+    $("#rows").innerHTML = state.cakes.map(function (c) {
+      var n = esc(c.name || "Untitled cake");
+      return '<tr data-id="' + c.id + '"><td>' + n + "</td>" +
+        '<td><input type="number" min="0" step="1" inputmode="numeric" data-k="hours" value="' + esc(c.hours) + '" aria-label="Hours for ' + n + '"></td>' +
+        '<td><input type="number" min="0" max="59" step="1" inputmode="numeric" data-k="minutes" value="' + esc(c.minutes) + '" aria-label="Minutes for ' + n + '"></td>' +
+        '<td class="out num" data-o="labor"></td><td class="out num" data-o="cost"></td><td class="out num" data-o="profit"></td></tr>';
+    }).join("") || '<tr><td colspan="6" class="empty">No cakes yet. Add a cake on the Cake costing tab first.</td></tr>';
+    calc();
+  }
+  function calc() {   // numbers only, never rebuilds inputs
+    var mins = 0, labor = 0;
+    state.cakes.forEach(function (c) {
+      var f = GWC.figures(state, c), tr = document.querySelector('#rows tr[data-id="' + c.id + '"]'); if (!tr) return;
+      mins += f.minutes; labor += f.labor;
+      tr.querySelector('[data-o="labor"]').textContent = usd.format(f.labor);
+      tr.querySelector('[data-o="cost"]').textContent = usd.format(f.cost);
+      var p = tr.querySelector('[data-o="profit"]'); p.textContent = usd.format(f.profit); p.classList.toggle("neg", f.profit < 0);
+    });
+    $("#tTime").textContent = mins > 0 ? GWC.timeText(mins) : "-";
+    $("#tLabor").textContent = usd.format(labor);
+  }
+  $("#wage").addEventListener("input", function (e) { state.wage = e.target.value; save(); calc(); });
+  $("#rows").addEventListener("input", function (e) {
+    var tr = e.target.closest("tr[data-id]"); if (!tr || !e.target.dataset.k) return;
+    state.cakes.filter(function (c) { return c.id === tr.dataset.id; })[0][e.target.dataset.k] = e.target.value;
+    save(); calc();
+  });
+  // Another tab (e.g. Cake costing) changed the data: pick it up instead of overwriting it.
+  window.addEventListener("storage", function (e) { if (e.key === GWC.KEY) { state = GWC.load(); render(); } });
+  window.addEventListener("pageshow", function (e) { if (e.persisted) { state = GWC.load(); render(); } });
+  render();
+})();
+</script>
+</body>
+</html>

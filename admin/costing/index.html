@@ -11,7 +11,7 @@
 <body>
 <nav class="adminnav" aria-label="Back office">
   <strong>Golden Whisk back office</strong>
-  <a href="../">Home</a><a href="../orders/">Orders &amp; customers</a><a href="../costing/" class="on">Cake costing</a><a href="../marketing/">Marketing</a>
+  <a href="../">Home</a><a href="../orders/">Orders &amp; customers</a><a href="../costing/" class="on">Cake costing</a><a href="../labor/">Labor &amp; time</a><a href="../marketing/">Marketing</a>
   <a class="site" href="../../">View public site</a>
 </nav>
 <div class="wrap">
@@ -54,7 +54,7 @@
     <h2>3. All cakes</h2>
     <p class="hint">Cost and profit for every cake, using the fixed cost above. "Orders" counts the orders linked to that cake on the Orders page.</p>
     <div class="scroll"><table>
-      <thead><tr><th>Cake</th><th class="num">Fixed</th><th class="num">Variable</th><th class="num">Total cost</th><th class="num">Price used</th><th class="num">Profit</th><th class="num">Orders</th></tr></thead>
+      <thead><tr><th>Cake</th><th class="num">Fixed</th><th class="num">Variable</th><th class="num">Labor</th><th class="num">Total cost</th><th class="num">Price used</th><th class="num">Profit</th><th class="num">Orders</th></tr></thead>
       <tbody id="summary"></tbody>
     </table></div>
   </section>
@@ -62,10 +62,11 @@
   <p class="note">Tip: use "Download backup" to save a copy of everything, or to move it to another phone or computer with "Load backup".</p>
 </div>
 
+<script src="../cost.js"></script>
 <script>
 (function () {
   "use strict";
-  var KEY = "gwc-costing-v2";   // v2: fixed cost per cake set once + custom variable items per cake
+  var KEY = GWC.KEY;   // v2: fixed cost per cake set once + custom variable items per cake
   var $ = function (s, r) { return (r || document).querySelector(s); };
   var uid = function () { return Math.random().toString(36).slice(2, 9); };
   var num = function (v) { var n = parseFloat(v); return isFinite(n) ? n : 0; };
@@ -73,9 +74,7 @@
   var usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
   var sum = function (list) { return list.reduce(function (s, x) { return s + num(x.amount); }, 0); };
 
-  function blank() { return { fixed: [], cakes: [], current: null }; }
-  var state = blank();
-  try { var raw = localStorage.getItem(KEY); if (raw) state = Object.assign(blank(), JSON.parse(raw)); } catch (e) { /* work in memory */ }
+  var blank = GWC.blank, state = GWC.load();
 
   function save() {
     try {
@@ -114,10 +113,15 @@
       '</tbody></table></div>' +
       '<div class="row-actions"><button id="addLine">+ Add custom ingredient</button></div>' +
       '<ul class="lines"><li class="total"><span>Total variable cost</span><span data-o="variable"></span></li></ul>' +
+      '<h3 class="group">Labor - her time on this cake</h3>' +
+      '<ul class="lines">' +
+        '<li><span>Labor<small data-o="laborNote"></small></span><span data-o="labor"></span></li>' +
+      '</ul>' +
+      '<p class="note" style="margin:6px 4px 0">Time and hourly rate are set on the <a href="../labor/">Labor &amp; time</a> tab.</p>' +
       '<h3 class="group">Fixed costs - same for every cake</h3>' +
       '<ul class="lines">' +
         '<li><span>Fixed cost per cake<small>From step 1</small></span><span data-o="fixed"></span></li>' +
-        '<li class="total"><span>TOTAL COST<small>Variable + fixed</small></span><span data-o="cost"></span></li>' +
+        '<li class="total"><span>TOTAL COST<small>Variable + labor + fixed</small></span><span data-o="cost"></span></li>' +
       '</ul>' +
       '<h3 class="group">Price</h3>' +
       '<div class="fields">' +
@@ -140,19 +144,17 @@
     var el = root.querySelector('[data-o="' + key + '"]');
     if (el) { el.textContent = text; el.classList.toggle("neg", !!neg); }
   }
-  function figures(c, fixed) {
-    var variable = sum(c.lines), cost = fixed + variable, suggested = cost * (1 + num(c.markup) / 100);
-    var actual = String(c.price == null ? "" : c.price).trim() !== "", price = actual ? num(c.price) : suggested;   // price used
-    return { variable: variable, cost: cost, suggested: suggested, actual: actual, price: price, profit: price - cost, margin: price > 0 ? (price - cost) / price : null };
-  }
+  function figures(c) { return GWC.figures(state, c); }
   function calc() {
     var fixed = sum(state.fixed);
     set(document, "fixedTotal", usd.format(fixed));
     var c = cake();
     if (c) {
-      var f = figures(c, fixed), body = $("#cakeBody");
+      var f = figures(c), body = $("#cakeBody");
       set(body, "fixed", usd.format(fixed));
       set(body, "variable", usd.format(f.variable));
+      set(body, "labor", usd.format(f.labor));
+      set(body, "laborNote", f.minutes > 0 ? GWC.timeText(f.minutes) + " at " + usd.format(num(state.wage)) + " per hour" : "No time entered for this cake yet");
       set(body, "cost", usd.format(f.cost));
       set(body, "cost2", usd.format(f.cost));
       set(body, "suggested", usd.format(f.suggested));
@@ -164,11 +166,11 @@
     var used = {};   // orders linked to each cake on the Orders page (same browser)
     try { (JSON.parse(localStorage.getItem("gwc-orders-v1") || "{}").orders || []).forEach(function (o) { if (o.cakeId && o.status !== "Cancelled") used[o.cakeId] = (used[o.cakeId] || 0) + 1; }); } catch (e) {}
     $("#summary").innerHTML = state.cakes.map(function (k) {
-      var g = figures(k, fixed);
-      return "<tr><td>" + esc(k.name || "Untitled cake") + '</td><td class="num">' + usd.format(fixed) + '</td><td class="num">' + usd.format(g.variable) +
+      var g = figures(k);
+      return "<tr><td>" + esc(k.name || "Untitled cake") + '</td><td class="num">' + usd.format(fixed) + '</td><td class="num">' + usd.format(g.variable) + '</td><td class="num">' + usd.format(g.labor) +
         '</td><td class="num out">' + usd.format(g.cost) + '</td><td class="num">' + usd.format(g.price) +
         '</td><td class="num out' + (g.profit < 0 ? " neg" : "") + '">' + usd.format(g.profit) + '</td><td class="num">' + (used[k.id] || 0) + "</td></tr>";
-    }).join("") || '<tr><td colspan="7" class="empty">No cakes yet.</td></tr>';
+    }).join("") || '<tr><td colspan="8" class="empty">No cakes yet.</td></tr>';
   }
 
   // ---------- events ----------
@@ -235,6 +237,10 @@
     };
     r.readAsText(f);
   });
+
+  // Another tab (e.g. Labor & time) changed the data: pick it up instead of overwriting it.
+  window.addEventListener("storage", function (e) { if (e.key === KEY) { var cur = state.current; state = GWC.load(); state.current = cur; render(); } });
+  window.addEventListener("pageshow", function (e) { if (e.persisted) { state = GWC.load(); render(); } });
 
   if (!cake() && state.cakes.length) state.current = state.cakes[0].id;
   render();
