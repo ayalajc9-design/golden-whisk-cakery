@@ -31,6 +31,7 @@
     <div class="stat"><b id="sWeek">0</b><span>Due in the next 7 days</span></div>
     <div class="stat"><b id="sOwed">$0.00</b><span>Balance still owed</span></div>
     <div class="stat"><b id="sSales">$0.00</b><span>Total sales</span></div>
+    <div class="stat"><b id="sProfit">$0.00</b><span>Profit on orders linked to a costed cake</span></div>
   </div>
 
   <section class="panel" id="formPanel">
@@ -40,6 +41,7 @@
         <div><label for="customer">Customer name</label><input id="customer" list="names" required></div>
         <div><label for="phone">Phone</label><input id="phone" type="tel"></div>
         <div><label for="item">Cake / item</label><input id="item" required></div>
+        <div><label for="cakeId">Linked cake (from Cake costing)</label><select id="cakeId"></select></div>
         <div><label for="size">Size / servings</label><input id="size"></div>
         <div><label for="dueDate">Due date</label><input id="dueDate" type="date" required></div>
         <div><label for="dueTime">Due time</label><input id="dueTime" type="time"></div>
@@ -66,7 +68,7 @@
       </select>
     </div>
     <div class="scroll"><table>
-      <thead><tr><th>#</th><th>Due</th><th>Customer</th><th>Cake / item</th><th class="num">Price</th><th class="num">Balance</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>#</th><th>Due</th><th>Customer</th><th>Cake / item</th><th class="num">Price</th><th class="num">Cake cost</th><th class="num">Profit</th><th class="num">Balance</th><th>Status</th><th></th></tr></thead>
       <tbody id="orders"></tbody>
     </table></div>
   </section>
@@ -89,11 +91,23 @@
   var num = function (v) { var n = parseFloat(v); return isFinite(n) ? n : 0; };
   var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); };
   var usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
-  var FIELDS = ["customer", "phone", "item", "size", "dueDate", "dueTime", "method", "status", "price", "paid", "notes"];
+  var FIELDS = ["customer", "phone", "item", "cakeId", "size", "dueDate", "dueTime", "method", "status", "price", "paid", "notes"];
   function blank() { return { orders: [], notes: {}, nextNum: 1 }; }
 
   var state = blank(), editing = null;
   try { var raw = localStorage.getItem(KEY); if (raw) state = Object.assign(blank(), JSON.parse(raw)); } catch (e) {}
+
+  // Cakes come from the Cake costing page (same browser): cost = fixed cost per cake + that cake's custom items.
+  function costedCakes() {
+    var out = {};
+    try {
+      var c = JSON.parse(localStorage.getItem("gwc-costing-v2") || "null"); if (!c) return out;
+      var sum = function (l) { return (l || []).reduce(function (s, x) { return s + num(x.amount); }, 0); }, fixed = sum(c.fixed);
+      (c.cakes || []).forEach(function (k) { out[k.id] = { name: k.name || "Untitled cake", cost: fixed + sum(k.lines), price: k.price }; });
+    } catch (e) {}
+    return out;
+  }
+  var cakes = {};
 
   function save() {
     try {
@@ -120,17 +134,26 @@
     $("#sOwed").textContent = usd.format(live.reduce(function (s, o) { return s + num(o.price) - num(o.paid); }, 0));
     $("#sSales").textContent = usd.format(live.reduce(function (s, o) { return s + num(o.price); }, 0));
 
+    cakes = costedCakes();
+    var sel = $("#cakeId"), cur = sel.value, ids = Object.keys(cakes);
+    sel.innerHTML = '<option value="">' + (ids.length ? "Not linked" : "No cakes in Cake costing yet") + "</option>" + ids.map(function (id) {
+      return '<option value="' + id + '">' + esc(cakes[id].name) + " (cost " + usd.format(cakes[id].cost) + ")</option>";
+    }).join("");
+    sel.value = cur;
+    $("#sProfit").textContent = usd.format(live.reduce(function (s, o) { return s + (cakes[o.cakeId] ? num(o.price) - cakes[o.cakeId].cost : 0); }, 0));
+
     var f = $("#filter").value;
     var rows = state.orders.filter(function (o) { return f === "all" || (f === "open" ? !closed(o) : closed(o)); })
       .sort(function (a, b) { return (a.dueDate + (a.dueTime || "")).localeCompare(b.dueDate + (b.dueTime || "")); });
     $("#orders").innerHTML = rows.map(function (o) {
-      var bal = num(o.price) - num(o.paid);
+      var bal = num(o.price) - num(o.paid), ck = cakes[o.cakeId], profit = ck ? num(o.price) - ck.cost : 0;
       var cls = o.status === "Completed" ? "done" : o.status === "Cancelled" ? "cancel" : o.status === "Ready" ? "ready" : "";
       return "<tr><td>" + o.num + "</td><td>" + esc(showDate(o.dueDate, o.dueTime)) + "<br><small>" + esc(o.method) + "</small></td><td>" + esc(o.customer) +
         "</td><td>" + esc(o.item) + (o.size ? "<br><small>" + esc(o.size) + "</small>" : "") + '</td><td class="num">' + usd.format(num(o.price)) +
+        '</td><td class="num">' + (ck ? usd.format(ck.cost) : "-") + '</td><td class="num out' + (ck && profit < 0 ? " neg" : "") + '">' + (ck ? usd.format(profit) : "-") +
         '</td><td class="num out' + (bal > 0 ? " neg" : "") + '">' + usd.format(bal) + '</td><td><span class="pill ' + cls + '">' + esc(o.status) +
         '</span></td><td><button data-edit="' + o.id + '">Edit</button></td></tr>';
-    }).join("") || '<tr><td colspan="8" class="empty">' + (state.orders.length ? "No orders in this view." : "No orders yet. Add the first one above.") + "</td></tr>";
+    }).join("") || '<tr><td colspan="10" class="empty">' + (state.orders.length ? "No orders in this view." : "No orders yet. Add the first one above.") + "</td></tr>";
 
     var cust = {};
     state.orders.forEach(function (o) {
@@ -161,6 +184,11 @@
     if (!editing) state.orders.push(o);
     save(); resetForm(); render();
   });
+  $("#cakeId").addEventListener("change", function () {   // picking a costed cake fills in blanks only
+    var ck = cakes[this.value]; if (!ck) return;
+    if (!$("#item").value) $("#item").value = ck.name;
+    if (!$("#price").value && String(ck.price || "").trim() !== "") $("#price").value = ck.price;
+  });
   $("#customer").addEventListener("change", function () {   // returning customer: fill in their phone
     var c = (window.__gwcCustomers || {})[key(this.value)];
     if (c && c.phone && !$("#phone").value) $("#phone").value = c.phone;
@@ -168,7 +196,7 @@
   $("#orders").addEventListener("click", function (e) {
     var b = e.target.closest("[data-edit]"); if (!b) return;
     var o = state.orders.filter(function (x) { return x.id === b.dataset.edit; })[0];
-    editing = o.id; FIELDS.forEach(function (k) { $("#" + k).value = o[k] || ""; });
+    editing = o.id; render(); FIELDS.forEach(function (k) { $("#" + k).value = o[k] || ""; });
     $("#formTitle").textContent = "Edit order #" + o.num; $("#saveBtn").textContent = "Save changes";
     $("#cancelBtn").hidden = false; $("#deleteBtn").hidden = false;
     $("#formPanel").scrollIntoView({ behavior: "smooth" });

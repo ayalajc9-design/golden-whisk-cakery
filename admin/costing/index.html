@@ -24,38 +24,24 @@
       <input type="file" id="import" accept="application/json,.json" hidden>
     </div>
   </div>
-  <p class="sub">Golden Whisk Cakery &middot; private working page. Everything you type is saved in this browser on this device only.</p>
-
-  <section class="panel" id="ingredients">
-    <h2>1. Ingredient prices</h2>
-    <p class="hint">List each ingredient once: what a package costs and how much is in it.</p>
-    <div class="scroll"><table>
-      <thead><tr><th>Ingredient</th><th class="num">Package price ($)</th><th class="num">Package size</th><th>Unit (cup, oz, each)</th><th class="num">Cost per unit</th><th></th></tr></thead>
-      <tbody></tbody>
-    </table></div>
-    <div class="row-actions"><button data-add="ingredients">+ Add ingredient</button></div>
-  </section>
+  <p class="sub">Private working page. Everything you type is saved in this browser on this device only.</p>
 
   <section class="panel" id="fixed">
-    <h2>2. Fixed costs (per month)</h2>
-    <p class="hint">Bills she pays every month no matter how many cakes she sells: kitchen, permits, insurance, equipment, website, advertising.</p>
+    <h2>1. Fixed cost per cake</h2>
+    <p class="hint">Set this up once. It is what every cake costs before anything custom is added, and it is applied to every cake below automatically.</p>
     <div class="scroll"><table>
-      <thead><tr><th>Monthly fixed cost</th><th class="num">Amount per month ($)</th><th></th></tr></thead>
+      <thead><tr><th>Fixed cost item</th><th class="num">Cost per cake ($)</th><th></th></tr></thead>
       <tbody></tbody>
     </table></div>
     <div class="row-actions"><button data-add="fixed">+ Add fixed cost</button></div>
-    <div class="fields">
-      <div><label for="orders">Cake orders expected per month</label><input type="number" id="orders" min="0" step="1" inputmode="decimal"></div>
-    </div>
-    <ul class="lines">
-      <li class="total"><span>Total fixed costs per month</span><span data-o="fixedTotal"></span></li>
-      <li class="total"><span>Fixed cost per order<small>Each order's share of the monthly bills</small></span><span data-o="fixedPer"></span></li>
+    <ul class="lines" style="margin-top:14px">
+      <li class="total"><span>Fixed cost per cake<small>Added to every cake</small></span><span data-o="fixedTotal"></span></li>
     </ul>
   </section>
 
   <section class="panel" id="cake">
-    <h2>3. Cake cost &amp; price</h2>
-    <p class="hint">Cost out one cake at a time. Add as many cakes as you like.</p>
+    <h2>2. Cakes</h2>
+    <p class="hint">For each cake, add only what is new for that cake: custom ingredients, toppers, special decorations.</p>
     <div class="cakebar">
       <select id="cakeSel" aria-label="Choose a cake"></select>
       <button class="solid" id="addCake">+ New cake</button>
@@ -64,28 +50,32 @@
     <div id="cakeBody"></div>
   </section>
 
+  <section class="panel">
+    <h2>3. All cakes</h2>
+    <p class="hint">Cost and profit for every cake, using the fixed cost above. "Orders" counts the orders linked to that cake on the Orders page.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Cake</th><th class="num">Fixed</th><th class="num">Variable</th><th class="num">Cake cost</th><th class="num">Price</th><th class="num">Profit</th><th class="num">Orders</th></tr></thead>
+      <tbody id="summary"></tbody>
+    </table></div>
+  </section>
+
   <p class="note">Tip: use "Download backup" to save a copy of everything, or to move it to another phone or computer with "Load backup".</p>
 </div>
 
 <script>
 (function () {
   "use strict";
-  var KEY = "gwc-costing-v1";
+  var KEY = "gwc-costing-v2";   // v2: fixed cost per cake set once + custom variable items per cake
   var $ = function (s, r) { return (r || document).querySelector(s); };
   var uid = function () { return Math.random().toString(36).slice(2, 9); };
   var num = function (v) { var n = parseFloat(v); return isFinite(n) ? n : 0; };
   var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); };
   var usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
-  var usd3 = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 3 });
+  var sum = function (list) { return list.reduce(function (s, x) { return s + num(x.amount); }, 0); };
 
-  function blank() { return { ingredients: [], fixed: [], orders: "", cakes: [], current: null }; }
-  function newCake() { return { id: uid(), name: "", servings: "", lines: [], packaging: "", hours: "", wage: "", other: "", markup: "", actual: "" }; }
-
+  function blank() { return { fixed: [], cakes: [], current: null }; }
   var state = blank();
-  try {
-    var raw = localStorage.getItem(KEY);
-    if (raw) state = Object.assign(blank(), JSON.parse(raw));
-  } catch (e) { /* storage unavailable: work in memory */ }
+  try { var raw = localStorage.getItem(KEY); if (raw) state = Object.assign(blank(), JSON.parse(raw)); } catch (e) { /* work in memory */ }
 
   function save() {
     try {
@@ -94,193 +84,120 @@
     } catch (e) { $("#saved").textContent = "Could not save in this browser - use Download backup"; }
   }
   function cake() { return state.cakes.filter(function (c) { return c.id === state.current; })[0] || null; }
-  function unitCost(i) { var s = num(i.size); return s > 0 ? num(i.price) / s : null; }
 
   // ---------- rendering (structure) ----------
-  function renderIngredients() {
-    var tb = $("#ingredients tbody");
-    tb.innerHTML = state.ingredients.map(function (i) {
-      return '<tr data-id="' + i.id + '">' +
-        '<td><input data-k="name" value="' + esc(i.name) + '" placeholder="e.g. flour" aria-label="Ingredient"></td>' +
-        '<td><input type="number" min="0" step="0.01" inputmode="decimal" data-k="price" value="' + esc(i.price) + '" aria-label="Package price"></td>' +
-        '<td><input type="number" min="0" step="any" inputmode="decimal" data-k="size" value="' + esc(i.size) + '" aria-label="Package size"></td>' +
-        '<td><input data-k="unit" value="' + esc(i.unit) + '" placeholder="cup" aria-label="Unit"></td>' +
-        '<td class="out num" data-o="cpu"></td>' +
-        '<td><button class="del" data-del title="Remove" aria-label="Remove ingredient">&times;</button></td></tr>';
-    }).join("") || '<tr><td colspan="6" class="empty">No ingredients yet.</td></tr>';
+  function rowsHtml(list, ph, emptyText) {
+    return list.map(function (x) {
+      return '<tr data-id="' + x.id + '">' +
+        '<td><input data-k="name" value="' + esc(x.name) + '" placeholder="' + ph + '" aria-label="Item"></td>' +
+        '<td><input type="number" min="0" step="0.01" inputmode="decimal" data-k="amount" value="' + esc(x.amount) + '" aria-label="Cost"></td>' +
+        '<td><button class="del" data-del title="Remove" aria-label="Remove item">&times;</button></td></tr>';
+    }).join("") || '<tr><td colspan="3" class="empty">' + emptyText + "</td></tr>";
   }
   function renderFixed() {
-    var tb = $("#fixed tbody");
-    tb.innerHTML = state.fixed.map(function (f) {
-      return '<tr data-id="' + f.id + '">' +
-        '<td><input data-k="name" value="' + esc(f.name) + '" placeholder="e.g. kitchen rent" aria-label="Fixed cost"></td>' +
-        '<td><input type="number" min="0" step="0.01" inputmode="decimal" data-k="amount" value="' + esc(f.amount) + '" aria-label="Amount per month"></td>' +
-        '<td><button class="del" data-del title="Remove" aria-label="Remove fixed cost">&times;</button></td></tr>';
-    }).join("") || '<tr><td colspan="3" class="empty">No fixed costs yet.</td></tr>';
-    $("#orders").value = state.orders;
-  }
-  function field(k, label, c, attrs) {
-    return '<div><label for="f-' + k + '">' + label + '</label><input id="f-' + k + '" data-c="' + k + '" value="' + esc(c[k]) + '" ' + (attrs || 'type="number" min="0" step="0.01" inputmode="decimal"') + '></div>';
+    $("#fixed tbody").innerHTML = rowsHtml(state.fixed, "e.g. base ingredients, box, her time", "No fixed costs yet.");
   }
   function renderCake() {
     var sel = $("#cakeSel"), c = cake();
     sel.innerHTML = state.cakes.map(function (k) {
-      return '<option value="' + k.id + '"' + (k.id === state.current ? " selected" : "") + '>' + esc(k.name || "Untitled cake") + '</option>';
+      return '<option value="' + k.id + '"' + (k.id === state.current ? " selected" : "") + ">" + esc(k.name || "Untitled cake") + "</option>";
     }).join("");
     sel.disabled = !state.cakes.length;
     $("#delCake").hidden = !c;
     var body = $("#cakeBody");
     if (!c) { body.innerHTML = '<p class="empty">No cakes yet. Press "+ New cake" to start.</p>'; return; }
-    var opts = function (cur) {
-      return '<option value="">Choose...</option>' + state.ingredients.filter(function (i) { return i.name; }).map(function (i) {
-        return '<option value="' + i.id + '"' + (i.id === cur ? " selected" : "") + '>' + esc(i.name) + '</option>';
-      }).join("");
-    };
     body.innerHTML =
-      '<div class="fields">' + field("name", "Cake name", c, 'type="text" placeholder="e.g. 8-inch vanilla"') + field("servings", "Servings", c, 'type="number" min="0" step="1" inputmode="decimal"') + '</div>' +
-      '<h3 class="group">Variable costs - change with every order</h3>' +
-      '<div class="scroll"><table id="lines"><thead><tr><th>Ingredient</th><th class="num">Amount used</th><th>Unit</th><th class="num">Cost</th><th></th></tr></thead><tbody>' +
-      (c.lines.map(function (l, i) {
-        return '<tr data-i="' + i + '"><td><select data-k="ing" aria-label="Ingredient">' + opts(l.ing) + '</select></td>' +
-          '<td><input type="number" min="0" step="any" inputmode="decimal" data-k="amount" value="' + esc(l.amount) + '" aria-label="Amount used"></td>' +
-          '<td data-o="lunit"></td><td class="out num" data-o="lcost"></td>' +
-          '<td><button class="del" data-del title="Remove" aria-label="Remove line">&times;</button></td></tr>';
-      }).join("") || '<tr><td colspan="5" class="empty">' + (state.ingredients.length ? "No ingredients added to this cake yet." : "Add ingredients in step 1 first.") + '</td></tr>') +
+      '<div class="fields"><div><label for="f-name">Cake name</label><input id="f-name" data-c="name" type="text" value="' + esc(c.name) + '" placeholder="e.g. Maria\'s birthday cake"></div></div>' +
+      '<h3 class="group">Variable costs - custom for this cake</h3>' +
+      '<div class="scroll"><table id="lines"><thead><tr><th>Custom ingredient or extra</th><th class="num">Cost ($)</th><th></th></tr></thead><tbody>' +
+      rowsHtml(c.lines, "e.g. fresh strawberries, topper", "Nothing custom added to this cake yet.") +
       '</tbody></table></div>' +
-      '<div class="row-actions"><button id="addLine">+ Add ingredient to this cake</button></div>' +
-      '<div class="fields">' +
-        field("packaging", "Box, board &amp; decorations ($)", c) +
-        field("hours", "Hours of work", c, 'type="number" min="0" step="0.25" inputmode="decimal"') +
-        field("wage", "Hourly wage to pay herself ($)", c) +
-        field("other", "Delivery &amp; other costs ($)", c) +
-      '</div>' +
+      '<div class="row-actions"><button id="addLine">+ Add custom ingredient</button></div>' +
+      '<h3 class="group">Cake cost</h3>' +
       '<ul class="lines">' +
-        '<li><span>Ingredients</span><span data-o="ing"></span></li>' +
-        '<li><span>Labor<small>Hours &times; hourly wage</small></span><span data-o="labor"></span></li>' +
-        '<li class="total"><span>Total variable cost</span><span data-o="variable"></span></li>' +
+        '<li><span>Fixed cost<small>From step 1, same for every cake</small></span><span data-o="fixed"></span></li>' +
+        '<li><span>Variable cost<small>Custom items for this cake</small></span><span data-o="variable"></span></li>' +
+        '<li class="big"><span>Cake cost</span><span data-o="cost"></span></li>' +
       '</ul>' +
-      '<h3 class="group">Fixed costs - this order\'s share of the monthly bills</h3>' +
+      '<h3 class="group">Cake profit</h3>' +
+      '<div class="fields"><div><label for="f-price">Price charged for this cake ($)</label><input id="f-price" data-c="price" type="number" min="0" step="0.01" inputmode="decimal" value="' + esc(c.price) + '"></div></div>' +
       '<ul class="lines">' +
-        '<li><span>Fixed cost per order<small>From step 2</small></span><span data-o="fixedShare"></span></li>' +
-        '<li class="total"><span>Total cost per order<small>Variable + fixed</small></span><span data-o="total"></span></li>' +
-      '</ul>' +
-      '<h3 class="group">Price</h3>' +
-      '<div class="fields">' + field("markup", "Profit markup (%)", c, 'type="number" min="0" step="1" inputmode="decimal"') + field("actual", "Price she actually charges ($) - optional", c) + '</div>' +
-      '<ul class="lines">' +
-        '<li class="big"><span>Suggested price</span><span data-o="suggested"></span></li>' +
-        '<li><span>Price per serving</span><span data-o="perServing"></span></li>' +
-      '</ul>' +
-      '<h3 class="group">Profit check</h3>' +
-      '<ul class="lines">' +
-        '<li><span>Price used<small data-o="usedNote"></small></span><span data-o="used"></span></li>' +
-        '<li><span>Left after variable costs<small>What each order puts toward the monthly bills</small></span><span data-o="contribution"></span></li>' +
-        '<li class="total"><span>Profit per order<small>After variable costs and the fixed share</small></span><span data-o="profit"></span></li>' +
-        '<li><span>Orders per month to cover fixed costs<small>Break-even if every order were this cake</small></span><span data-o="breakeven"></span></li>' +
+        '<li class="big"><span>Cake profit<small>Price minus cake cost</small></span><span data-o="profit"></span></li>' +
+        '<li><span>Profit margin<small>Profit as a share of the price</small></span><span data-o="margin"></span></li>' +
       '</ul>';
   }
-  function render() { renderIngredients(); renderFixed(); renderCake(); calc(); }
+  function render() { renderFixed(); renderCake(); calc(); }
 
   // ---------- calculations (numbers only, never rebuilds inputs) ----------
   function set(root, key, text, neg) {
     var el = root.querySelector('[data-o="' + key + '"]');
     if (el) { el.textContent = text; el.classList.toggle("neg", !!neg); }
   }
+  function figures(c, fixed) {
+    var variable = sum(c.lines), cost = fixed + variable, priced = String(c.price).trim() !== "", price = num(c.price);
+    return { variable: variable, cost: cost, priced: priced, price: price, profit: price - cost, margin: price > 0 ? (price - cost) / price : null };
+  }
   function calc() {
-    var cpu = {}, unit = {};
-    state.ingredients.forEach(function (i) {
-      cpu[i.id] = unitCost(i); unit[i.id] = i.unit;
-      var tr = document.querySelector('#ingredients tr[data-id="' + i.id + '"]');
-      if (tr) set(tr, "cpu", cpu[i.id] == null ? "-" : usd3.format(cpu[i.id]));
-    });
-    var fixedTotal = state.fixed.reduce(function (s, f) { return s + num(f.amount); }, 0);
-    var orders = num(state.orders);
-    var fixedPer = orders > 0 ? fixedTotal / orders : 0;
-    set(document, "fixedTotal", usd.format(fixedTotal));
-    set(document, "fixedPer", orders > 0 ? usd.format(fixedPer) : "Enter orders per month");
-
-    var c = cake(); if (!c) return;
-    var body = $("#cakeBody"), ing = 0;
-    c.lines.forEach(function (l, i) {
-      var cost = l.ing && cpu[l.ing] != null ? num(l.amount) * cpu[l.ing] : 0;
-      ing += cost;
-      var tr = body.querySelector('tr[data-i="' + i + '"]');
-      if (tr) { set(tr, "lunit", l.ing ? (unit[l.ing] || "") : ""); set(tr, "lcost", l.ing ? usd.format(cost) : "-"); }
-    });
-    var labor = num(c.hours) * num(c.wage);
-    var variable = ing + num(c.packaging) + labor + num(c.other);
-    var total = variable + fixedPer;
-    var suggested = total * (1 + num(c.markup) / 100);
-    var hasActual = String(c.actual).trim() !== "";
-    var used = hasActual ? num(c.actual) : suggested;
-    var contribution = used - variable, profit = used - total;
-    set(body, "ing", usd.format(ing));
-    set(body, "labor", usd.format(labor));
-    set(body, "variable", usd.format(variable));
-    set(body, "fixedShare", orders > 0 ? usd.format(fixedPer) : "Enter orders per month in step 2");
-    set(body, "total", usd.format(total));
-    set(body, "suggested", usd.format(suggested));
-    set(body, "perServing", num(c.servings) > 0 ? usd.format(suggested / num(c.servings)) : "-");
-    set(body, "used", usd.format(used));
-    set(body, "usedNote", hasActual ? "The price she actually charges" : "Suggested price (no actual price entered)");
-    set(body, "contribution", usd.format(contribution), contribution < 0);
-    set(body, "profit", usd.format(profit), profit < 0);
-    set(body, "breakeven", contribution > 0 ? (fixedTotal > 0 ? String(Math.ceil(fixedTotal / contribution - 1e-9)) : "0") : "Price is below variable cost", contribution <= 0);
+    var fixed = sum(state.fixed);
+    set(document, "fixedTotal", usd.format(fixed));
+    var c = cake();
+    if (c) {
+      var f = figures(c, fixed), body = $("#cakeBody");
+      set(body, "fixed", usd.format(fixed));
+      set(body, "variable", usd.format(f.variable));
+      set(body, "cost", usd.format(f.cost));
+      set(body, "profit", f.priced ? usd.format(f.profit) : "Enter the price", f.priced && f.profit < 0);
+      set(body, "margin", f.priced && f.margin != null ? Math.round(f.margin * 100) + "%" : "-", f.priced && f.profit < 0);
+    }
+    var used = {};   // orders linked to each cake on the Orders page (same browser)
+    try { (JSON.parse(localStorage.getItem("gwc-orders-v1") || "{}").orders || []).forEach(function (o) { if (o.cakeId && o.status !== "Cancelled") used[o.cakeId] = (used[o.cakeId] || 0) + 1; }); } catch (e) {}
+    $("#summary").innerHTML = state.cakes.map(function (k) {
+      var g = figures(k, fixed);
+      return "<tr><td>" + esc(k.name || "Untitled cake") + '</td><td class="num">' + usd.format(fixed) + '</td><td class="num">' + usd.format(g.variable) +
+        '</td><td class="num out">' + usd.format(g.cost) + '</td><td class="num">' + (g.priced ? usd.format(g.price) : "-") +
+        '</td><td class="num out' + (g.priced && g.profit < 0 ? " neg" : "") + '">' + (g.priced ? usd.format(g.profit) : "-") + '</td><td class="num">' + (used[k.id] || 0) + "</td></tr>";
+    }).join("") || '<tr><td colspan="7" class="empty">No cakes yet.</td></tr>';
   }
 
   // ---------- events ----------
-  function bindList(sectionId, listKey, make) {
-    var sec = $("#" + sectionId);
-    sec.addEventListener("input", function (e) {
-      var tr = e.target.closest("tbody tr[data-id]"); if (!tr || !e.target.dataset.k) return;
-      var item = state[listKey].filter(function (x) { return x.id === tr.dataset.id; })[0];
-      item[e.target.dataset.k] = e.target.value; save(); calc();
+  function bindRows(root, getList, rerender) {
+    root.addEventListener("input", function (e) {
+      var tr = e.target.closest("tbody tr[data-id]"), list = getList(); if (!tr || !list || !e.target.dataset.k) return;
+      list.filter(function (x) { return x.id === tr.dataset.id; })[0][e.target.dataset.k] = e.target.value; save(); calc();
     });
-    sec.addEventListener("change", function (e) {   // names/units feed the cake dropdowns
-      if (e.target.closest("tbody tr[data-id]") && listKey === "ingredients") renderCake(), calc();
-    });
-    sec.addEventListener("click", function (e) {
-      if (e.target.closest("[data-add]")) {
-        state[listKey].push(make()); save(); render();
-        var inputs = sec.querySelectorAll('tbody tr:last-child input'); if (inputs[0]) inputs[0].focus();
-      }
-      var del = e.target.closest("tbody [data-del]");
-      if (del) {
-        var id = del.closest("tr").dataset.id;
-        state[listKey] = state[listKey].filter(function (x) { return x.id !== id; });
-        if (listKey === "ingredients") state.cakes.forEach(function (c) { c.lines.forEach(function (l) { if (l.ing === id) l.ing = ""; }); });
-        save(); render();
-      }
+    root.addEventListener("click", function (e) {
+      var del = e.target.closest("tbody [data-del]"), list = getList(); if (!del || !list) return;
+      var id = del.closest("tr").dataset.id, i = list.map(function (x) { return x.id; }).indexOf(id);
+      if (i > -1) list.splice(i, 1); save(); rerender(); calc();
     });
   }
-  bindList("ingredients", "ingredients", function () { return { id: uid(), name: "", price: "", size: "", unit: "" }; });
-  bindList("fixed", "fixed", function () { return { id: uid(), name: "", amount: "" }; });
-  $("#orders").addEventListener("input", function (e) { state.orders = e.target.value; save(); calc(); });
+  var newRow = function () { return { id: uid(), name: "", amount: "" }; };
+  var focusLast = function (root) { var i = root.querySelector("tbody tr:last-child input"); if (i) i.focus(); };
 
-  var cakeSec = $("#cake");
+  var fixedSec = $("#fixed");
+  bindRows(fixedSec, function () { return state.fixed; }, renderFixed);
+  $("[data-add=fixed]").addEventListener("click", function () { state.fixed.push(newRow()); save(); renderFixed(); calc(); focusLast(fixedSec); });
+
+  var body = $("#cakeBody");
+  bindRows(body, function () { var c = cake(); return c && c.lines; }, renderCake);
+  body.addEventListener("input", function (e) {
+    var c = cake(), t = e.target; if (!c || !t.dataset.c) return;
+    c[t.dataset.c] = t.value;
+    if (t.dataset.c === "name") { var o = $("#cakeSel").selectedOptions[0]; if (o) o.textContent = t.value || "Untitled cake"; }
+    save(); calc();
+  });
+  body.addEventListener("click", function (e) {
+    var c = cake(); if (!c || e.target.id !== "addLine") return;
+    c.lines.push(newRow()); save(); renderCake(); calc(); focusLast($("#lines"));
+  });
   $("#cakeSel").addEventListener("change", function (e) { state.current = e.target.value; save(); renderCake(); calc(); });
   $("#addCake").addEventListener("click", function () {
-    var c = newCake(); state.cakes.push(c); state.current = c.id; save(); renderCake(); calc(); $("#f-name").focus();
+    var c = { id: uid(), name: "", lines: [], price: "" }; state.cakes.push(c); state.current = c.id; save(); renderCake(); calc(); $("#f-name").focus();
   });
   $("#delCake").addEventListener("click", function () {
     var c = cake(); if (!c || !confirm('Delete "' + (c.name || "Untitled cake") + '"? This cannot be undone.')) return;
     state.cakes = state.cakes.filter(function (x) { return x.id !== c.id; });
     state.current = state.cakes.length ? state.cakes[0].id : null; save(); renderCake(); calc();
-  });
-  cakeSec.addEventListener("input", function (e) {
-    var c = cake(); if (!c) return; var t = e.target;
-    if (t.dataset.c) {
-      c[t.dataset.c] = t.value;
-      if (t.dataset.c === "name") { var o = $("#cakeSel").selectedOptions[0]; if (o) o.textContent = t.value || "Untitled cake"; }
-    } else if (t.dataset.k && t.closest("tr[data-i]")) {
-      c.lines[+t.closest("tr").dataset.i][t.dataset.k] = t.value;
-    } else return;
-    save(); calc();
-  });
-  cakeSec.addEventListener("click", function (e) {
-    var c = cake(); if (!c) return;
-    if (e.target.id === "addLine") { c.lines.push({ ing: "", amount: "" }); save(); renderCake(); calc(); }
-    var del = e.target.closest("#lines [data-del]");
-    if (del) { c.lines.splice(+del.closest("tr").dataset.i, 1); save(); renderCake(); calc(); }
   });
 
   // ---------- backup ----------
@@ -297,10 +214,11 @@
     r.onload = function () {
       try {
         var d = JSON.parse(r.result);
-        if (!d || !Array.isArray(d.ingredients) || !Array.isArray(d.cakes) || !Array.isArray(d.fixed)) throw new Error("bad file");
+        var ok = d && Array.isArray(d.fixed) && Array.isArray(d.cakes) && d.cakes.every(function (c) { return Array.isArray(c.lines) && c.lines.every(function (l) { return "amount" in l; }); });
+        if (!ok) throw new Error("bad file");
         if (!confirm("Replace everything on this page with the backup?")) return;
         state = Object.assign(blank(), d); save(); render();
-      } catch (err) { alert("That file is not a Golden Whisk costing backup."); }
+      } catch (err) { alert("That file is not a backup from this costing page."); }
       e.target.value = "";
     };
     r.readAsText(f);
