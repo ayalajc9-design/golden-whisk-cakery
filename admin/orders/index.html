@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Orders &amp; Customers - Golden Whisk Cakery</title>
+  <link rel="stylesheet" href="../../styles.css">
+  <link rel="stylesheet" href="../admin.css">
+</head>
+<body>
+<nav class="adminnav" aria-label="Back office">
+  <strong>Golden Whisk back office</strong>
+  <a href="../">Home</a><a href="../orders/" class="on">Orders &amp; customers</a><a href="../costing/">Cake costing</a><a href="../marketing/">Marketing</a>
+  <a class="site" href="../../">View public site</a>
+</nav>
+<div class="wrap">
+  <div class="top">
+    <h1>Orders &amp; Customers</h1>
+    <div class="savebar">
+      <span class="saved" id="saved"></span>
+      <button id="export">Download backup</button>
+      <button id="importBtn">Load backup</button>
+      <input type="file" id="import" accept="application/json,.json" hidden>
+    </div>
+  </div>
+  <p class="sub">Private working page. Everything you type is saved in this browser on this device only.</p>
+
+  <div class="stats">
+    <div class="stat"><b id="sOpen">0</b><span>Open orders</span></div>
+    <div class="stat"><b id="sWeek">0</b><span>Due in the next 7 days</span></div>
+    <div class="stat"><b id="sOwed">$0.00</b><span>Balance still owed</span></div>
+    <div class="stat"><b id="sSales">$0.00</b><span>Total sales</span></div>
+  </div>
+
+  <section class="panel" id="formPanel">
+    <h2 id="formTitle">New order</h2>
+    <form id="form" autocomplete="off">
+      <div class="fields">
+        <div><label for="customer">Customer name</label><input id="customer" list="names" required></div>
+        <div><label for="phone">Phone</label><input id="phone" type="tel"></div>
+        <div><label for="item">Cake / item</label><input id="item" required></div>
+        <div><label for="size">Size / servings</label><input id="size"></div>
+        <div><label for="dueDate">Due date</label><input id="dueDate" type="date" required></div>
+        <div><label for="dueTime">Due time</label><input id="dueTime" type="time"></div>
+        <div><label for="method">Pickup or delivery</label><select id="method"><option>Pickup</option><option>Delivery</option></select></div>
+        <div><label for="status">Status</label><select id="status"><option>New</option><option>Confirmed</option><option>In Progress</option><option>Ready</option><option>Completed</option><option>Cancelled</option></select></div>
+        <div><label for="price">Price ($)</label><input id="price" type="number" min="0" step="0.01" inputmode="decimal"></div>
+        <div><label for="paid">Paid so far ($) - deposit and payments</label><input id="paid" type="number" min="0" step="0.01" inputmode="decimal"></div>
+      </div>
+      <div style="margin-bottom:14px"><label for="notes">Flavor &amp; design notes</label><textarea id="notes"></textarea></div>
+      <datalist id="names"></datalist>
+      <div class="formactions">
+        <button class="solid" type="submit" id="saveBtn">Save order</button>
+        <button type="button" id="cancelBtn" hidden>Cancel</button>
+        <button type="button" id="deleteBtn" hidden>Delete order</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <div class="top">
+      <h2>Orders</h2>
+      <select id="filter" aria-label="Show" style="width:auto">
+        <option value="open">Open orders</option><option value="all">All orders</option><option value="done">Completed &amp; cancelled</option>
+      </select>
+    </div>
+    <div class="scroll"><table>
+      <thead><tr><th>#</th><th>Due</th><th>Customer</th><th>Cake / item</th><th class="num">Price</th><th class="num">Balance</th><th>Status</th><th></th></tr></thead>
+      <tbody id="orders"></tbody>
+    </table></div>
+  </section>
+
+  <section class="panel">
+    <h2>Customers</h2>
+    <p class="hint">Built automatically from the orders above. Cancelled orders are not counted.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Customer</th><th>Phone</th><th class="num">Orders</th><th class="num">Total spent</th><th>Notes (allergies, favorites, birthdays)</th></tr></thead>
+      <tbody id="customers"></tbody>
+    </table></div>
+  </section>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var KEY = "gwc-orders-v1";
+  var $ = function (s) { return document.querySelector(s); };
+  var num = function (v) { var n = parseFloat(v); return isFinite(n) ? n : 0; };
+  var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); };
+  var usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+  var FIELDS = ["customer", "phone", "item", "size", "dueDate", "dueTime", "method", "status", "price", "paid", "notes"];
+  function blank() { return { orders: [], notes: {}, nextNum: 1 }; }
+
+  var state = blank(), editing = null;
+  try { var raw = localStorage.getItem(KEY); if (raw) state = Object.assign(blank(), JSON.parse(raw)); } catch (e) {}
+
+  function save() {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(state));
+      $("#saved").textContent = "Saved " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    } catch (e) { $("#saved").textContent = "Could not save in this browser - use Download backup"; }
+  }
+  function ymd(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+  function showDate(s, t) {
+    if (!s) return "-";
+    var p = s.split("-"), d = new Date(+p[0], +p[1] - 1, +p[2]);
+    var out = d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+    if (t) { var h = t.split(":"); out += ", " + new Date(2000, 0, 1, +h[0], +h[1]).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
+    return out;
+  }
+  var closed = function (o) { return o.status === "Completed" || o.status === "Cancelled"; };
+  var key = function (name) { return String(name || "").trim().toLowerCase(); };
+
+  function render() {
+    var today = ymd(new Date()), wk = new Date(); wk.setDate(wk.getDate() + 7); var week = ymd(wk);
+    var live = state.orders.filter(function (o) { return o.status !== "Cancelled"; });
+    $("#sOpen").textContent = state.orders.filter(function (o) { return !closed(o); }).length;
+    $("#sWeek").textContent = state.orders.filter(function (o) { return !closed(o) && o.dueDate >= today && o.dueDate <= week; }).length;
+    $("#sOwed").textContent = usd.format(live.reduce(function (s, o) { return s + num(o.price) - num(o.paid); }, 0));
+    $("#sSales").textContent = usd.format(live.reduce(function (s, o) { return s + num(o.price); }, 0));
+
+    var f = $("#filter").value;
+    var rows = state.orders.filter(function (o) { return f === "all" || (f === "open" ? !closed(o) : closed(o)); })
+      .sort(function (a, b) { return (a.dueDate + (a.dueTime || "")).localeCompare(b.dueDate + (b.dueTime || "")); });
+    $("#orders").innerHTML = rows.map(function (o) {
+      var bal = num(o.price) - num(o.paid);
+      var cls = o.status === "Completed" ? "done" : o.status === "Cancelled" ? "cancel" : o.status === "Ready" ? "ready" : "";
+      return "<tr><td>" + o.num + "</td><td>" + esc(showDate(o.dueDate, o.dueTime)) + "<br><small>" + esc(o.method) + "</small></td><td>" + esc(o.customer) +
+        "</td><td>" + esc(o.item) + (o.size ? "<br><small>" + esc(o.size) + "</small>" : "") + '</td><td class="num">' + usd.format(num(o.price)) +
+        '</td><td class="num out' + (bal > 0 ? " neg" : "") + '">' + usd.format(bal) + '</td><td><span class="pill ' + cls + '">' + esc(o.status) +
+        '</span></td><td><button data-edit="' + o.id + '">Edit</button></td></tr>';
+    }).join("") || '<tr><td colspan="8" class="empty">' + (state.orders.length ? "No orders in this view." : "No orders yet. Add the first one above.") + "</td></tr>";
+
+    var cust = {};
+    state.orders.forEach(function (o) {
+      var k = key(o.customer); if (!k) return;
+      var c = cust[k] || (cust[k] = { name: o.customer.trim(), phone: "", count: 0, spent: 0 });
+      if (o.phone) c.phone = o.phone;
+      if (o.status !== "Cancelled") { c.count++; c.spent += num(o.price); }
+    });
+    var list = Object.keys(cust).sort().map(function (k) { return [k, cust[k]]; });
+    $("#customers").innerHTML = list.map(function (e) {
+      var k = e[0], c = e[1];
+      return "<tr><td>" + esc(c.name) + "</td><td>" + esc(c.phone) + '</td><td class="num">' + c.count + '</td><td class="num">' + usd.format(c.spent) +
+        '</td><td><input data-note="' + esc(k) + '" value="' + esc(state.notes[k] || "") + '" aria-label="Notes for ' + esc(c.name) + '"></td></tr>';
+    }).join("") || '<tr><td colspan="5" class="empty">Customers appear here once there are orders.</td></tr>';
+    $("#names").innerHTML = list.map(function (e) { return '<option value="' + esc(e[1].name) + '">'; }).join("");
+    window.__gwcCustomers = cust;
+  }
+
+  function resetForm() {
+    editing = null; $("#form").reset();
+    $("#formTitle").textContent = "New order"; $("#saveBtn").textContent = "Save order";
+    $("#cancelBtn").hidden = true; $("#deleteBtn").hidden = true;
+  }
+  $("#form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var o = editing ? state.orders.filter(function (x) { return x.id === editing; })[0] : { id: Math.random().toString(36).slice(2, 9), num: state.nextNum++, created: ymd(new Date()) };
+    FIELDS.forEach(function (k) { o[k] = $("#" + k).value.trim(); });
+    if (!editing) state.orders.push(o);
+    save(); resetForm(); render();
+  });
+  $("#customer").addEventListener("change", function () {   // returning customer: fill in their phone
+    var c = (window.__gwcCustomers || {})[key(this.value)];
+    if (c && c.phone && !$("#phone").value) $("#phone").value = c.phone;
+  });
+  $("#orders").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-edit]"); if (!b) return;
+    var o = state.orders.filter(function (x) { return x.id === b.dataset.edit; })[0];
+    editing = o.id; FIELDS.forEach(function (k) { $("#" + k).value = o[k] || ""; });
+    $("#formTitle").textContent = "Edit order #" + o.num; $("#saveBtn").textContent = "Save changes";
+    $("#cancelBtn").hidden = false; $("#deleteBtn").hidden = false;
+    $("#formPanel").scrollIntoView({ behavior: "smooth" });
+  });
+  $("#cancelBtn").addEventListener("click", resetForm);
+  $("#deleteBtn").addEventListener("click", function () {
+    if (!editing || !confirm("Delete this order? This cannot be undone.")) return;
+    state.orders = state.orders.filter(function (x) { return x.id !== editing; });
+    save(); resetForm(); render();
+  });
+  $("#filter").addEventListener("change", render);
+  $("#customers").addEventListener("input", function (e) {
+    if (e.target.dataset.note != null) { state.notes[e.target.dataset.note] = e.target.value; save(); }
+  });
+
+  $("#export").addEventListener("click", function () {
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(state, null, 2)], { type: "application/json" }));
+    a.download = "golden-whisk-orders-" + ymd(new Date()) + ".json";
+    a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  });
+  $("#importBtn").addEventListener("click", function () { $("#import").click(); });
+  $("#import").addEventListener("change", function (e) {
+    var f = e.target.files[0]; if (!f) return;
+    var r = new FileReader();
+    r.onload = function () {
+      try {
+        var d = JSON.parse(r.result);
+        if (!d || !Array.isArray(d.orders)) throw new Error("bad file");
+        if (!confirm("Replace everything on this page with the backup?")) return;
+        state = Object.assign(blank(), d); save(); resetForm(); render();
+      } catch (err) { alert("That file is not a Golden Whisk orders backup."); }
+      e.target.value = "";
+    };
+    r.readAsText(f);
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

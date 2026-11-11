@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Marketing - Golden Whisk Cakery</title>
+  <link rel="stylesheet" href="../../styles.css">
+  <link rel="stylesheet" href="../admin.css">
+</head>
+<body>
+<nav class="adminnav" aria-label="Back office">
+  <strong>Golden Whisk back office</strong>
+  <a href="../">Home</a><a href="../orders/">Orders &amp; customers</a><a href="../costing/">Cake costing</a><a href="../marketing/" class="on">Marketing</a>
+  <a class="site" href="../../">View public site</a>
+</nav>
+<div class="wrap">
+  <div class="top"><h1>Marketing</h1></div>
+  <p class="sub">Drafts to print and post. Text in [brackets] is a placeholder: swap in the real details before using it.</p>
+
+  <section class="panel">
+    <h2>Menu flyer</h2>
+    <p class="hint">One page, letter size, ready to print once the placeholders are filled in.</p>
+    <a class="btn btn-primary" href="menu-flyer.pdf" target="_blank" rel="noopener">Open the flyer (PDF)</a>
+  </section>
+
+  <section class="panel">
+    <h2>Profile bio</h2>
+    <p class="hint">For the Instagram or Facebook profile description.</p>
+    <div class="post" id="bio"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Social posts</h2>
+    <p class="hint">Press Copy, paste into Instagram or Facebook, then replace the [brackets].</p>
+    <div id="posts"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Hashtags</h2>
+    <p class="hint">Add a few at the end of each post. Swap in the real city.</p>
+    <div class="post" id="tags"></div>
+  </section>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var esc = function (s) { return s.replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); };
+  var mark = function (s) { return esc(s).replace(/\[[^\]]+\]/g, function (m) { return '<span class="ph">' + m + "</span>"; }); };
+  var CONTACT = "[phone number or @handle]";
+  var POSTS = [
+    { t: "1. Introduction", when: "First post on a new page, or pinned to the top. Photo: her best cake, or her with a cake.", lines: [
+      "Welcome to Golden Whisk Cakery!",
+      "I'm [her name], and I bake custom cakes from scratch for birthdays, celebrations, and every sweet moment in between.",
+      "[One sentence about how she started or what she loves about baking.]",
+      "Serving [city / area]. To order, [text / DM / call] " + CONTACT + "." ] },
+    { t: "2. Menu highlight", when: "Any week; repeat with a different cake each time. Photo: a close-up of the cake named in the post.", lines: [
+      "Meet our [cake name].",
+      "[Flavors, fillings, and what makes it special.]",
+      "[Size / servings] for [$00]. Made to order, just for you.",
+      "Message us to reserve yours: " + CONTACT + "." ] },
+    { t: "3. How to order", when: "Every few weeks, so new followers know what to do. Photo: the menu flyer, or a cake being boxed up.", lines: [
+      "Ordering a cake is easy:",
+      "1. Send us your date, number of guests, and the cake you have in mind.",
+      "2. We confirm flavor, design, and price. [Deposit amount and how to pay.]",
+      "3. [Pickup location or delivery details.]",
+      "Please order at least [number of days] ahead. " + CONTACT ] },
+    { t: "4. Holiday pre-orders", when: "Two to three weeks before a holiday. Photo: a holiday cake, or last year's holiday table.", lines: [
+      "[Holiday] orders are now open!",
+      "[Holiday cakes or specials she is offering, with prices.]",
+      "Order by [order deadline date] for pickup on [pickup dates].",
+      "Spots are limited. Message us to save yours: " + CONTACT + "." ] },
+    { t: "5. Happy customer", when: "After a customer sends a photo or kind words; ask their permission first. Photo: the customer's photo of the cake.", lines: [
+      "This [cake name] went to [customer first name]'s [occasion], and we loved making it.",
+      "\"[Customer's own words about the cake.]\"",
+      "Thank you for letting us be part of your celebration!",
+      "Planning something? " + CONTACT ] },
+    { t: "6. Behind the scenes", when: "Any time; these do well as short videos. Photo: frosting, piping, or decorating in progress.", lines: [
+      "A little peek at today's work: [what she is making].",
+      "Every cake is baked from scratch and decorated by hand.",
+      "[A small detail about her process or a favorite ingredient.]",
+      "Orders open for [month / dates]: " + CONTACT + "." ] }
+  ];
+  function block(text) { return "<pre>" + mark(text) + '</pre><button data-copy="' + esc(text) + '">Copy</button>'; }
+  document.getElementById("bio").innerHTML = block("Golden Whisk Cakery\nCustom cakes made from scratch in [city / area]\n[Pickup / delivery] | Order [number of days] ahead\nTo order: [text / DM / phone number]");
+  document.getElementById("tags").innerHTML = block("#GoldenWhiskCakery #customcakes #[city]cakes #[city]bakery #birthdaycake #madefromscratch");
+  document.getElementById("posts").innerHTML = POSTS.map(function (p) {
+    return '<div class="post"><h3>' + esc(p.t) + '</h3><p class="when">' + esc(p.when) + "</p>" + block(p.lines.join("\n\n")) + "</div>";
+  }).join("");
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest("[data-copy]"); if (!b) return;
+    var text = b.dataset.copy, done = function () { b.textContent = "Copied"; setTimeout(function () { b.textContent = "Copy"; }, 1500); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback); else fallback();
+    function fallback() {
+      var ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); done(); } catch (err) { b.textContent = "Select the text and copy it"; }
+      ta.remove();
+    }
+  });
+})();
+</script>
+</body>
+</html>
