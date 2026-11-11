@@ -103,7 +103,8 @@
     try {
       var c = JSON.parse(localStorage.getItem("gwc-costing-v2") || "null"); if (!c) return out;
       var sum = function (l) { return (l || []).reduce(function (s, x) { return s + num(x.amount); }, 0); }, fixed = sum(c.fixed);
-      (c.cakes || []).forEach(function (k) { out[k.id] = { name: k.name || "Untitled cake", cost: fixed + sum(k.lines), price: k.price }; });
+      (c.cakes || []).forEach(function (k) { var cost = fixed + sum(k.lines), actual = String(k.price == null ? "" : k.price).trim() !== "";
+        out[k.id] = { name: k.name || "Untitled cake", cost: cost, price: actual ? k.price : (num(k.markup) > 0 ? (cost * (1 + num(k.markup) / 100)).toFixed(2) : "") }; });
     } catch (e) {}
     return out;
   }

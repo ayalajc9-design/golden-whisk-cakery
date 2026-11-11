@@ -54,7 +54,7 @@
     <h2>3. All cakes</h2>
     <p class="hint">Cost and profit for every cake, using the fixed cost above. "Orders" counts the orders linked to that cake on the Orders page.</p>
     <div class="scroll"><table>
-      <thead><tr><th>Cake</th><th class="num">Fixed</th><th class="num">Variable</th><th class="num">Cake cost</th><th class="num">Price</th><th class="num">Profit</th><th class="num">Orders</th></tr></thead>
+      <thead><tr><th>Cake</th><th class="num">Fixed</th><th class="num">Variable</th><th class="num">Total cost</th><th class="num">Price used</th><th class="num">Profit</th><th class="num">Orders</th></tr></thead>
       <tbody id="summary"></tbody>
     </table></div>
   </section>
@@ -113,16 +113,23 @@
       rowsHtml(c.lines, "e.g. fresh strawberries, topper", "Nothing custom added to this cake yet.") +
       '</tbody></table></div>' +
       '<div class="row-actions"><button id="addLine">+ Add custom ingredient</button></div>' +
-      '<h3 class="group">Cake cost</h3>' +
+      '<ul class="lines"><li class="total"><span>Total variable cost</span><span data-o="variable"></span></li></ul>' +
+      '<h3 class="group">Fixed costs - same for every cake</h3>' +
       '<ul class="lines">' +
-        '<li><span>Fixed cost<small>From step 1, same for every cake</small></span><span data-o="fixed"></span></li>' +
-        '<li><span>Variable cost<small>Custom items for this cake</small></span><span data-o="variable"></span></li>' +
-        '<li class="big"><span>Cake cost</span><span data-o="cost"></span></li>' +
+        '<li><span>Fixed cost per cake<small>From step 1</small></span><span data-o="fixed"></span></li>' +
+        '<li class="total"><span>TOTAL COST<small>Variable + fixed</small></span><span data-o="cost"></span></li>' +
       '</ul>' +
-      '<h3 class="group">Cake profit</h3>' +
-      '<div class="fields"><div><label for="f-price">Price charged for this cake ($)</label><input id="f-price" data-c="price" type="number" min="0" step="0.01" inputmode="decimal" value="' + esc(c.price) + '"></div></div>' +
+      '<h3 class="group">Price</h3>' +
+      '<div class="fields">' +
+        '<div><label for="f-markup">Profit markup (%)</label><input id="f-markup" data-c="markup" type="number" min="0" step="1" inputmode="decimal" value="' + esc(c.markup) + '"></div>' +
+        '<div><label for="f-price">Price she actually charges ($) - optional</label><input id="f-price" data-c="price" type="number" min="0" step="0.01" inputmode="decimal" value="' + esc(c.price) + '"></div>' +
+      '</div>' +
+      '<ul class="lines"><li class="big"><span>Suggested price<small>Total cost plus markup</small></span><span data-o="suggested"></span></li></ul>' +
+      '<h3 class="group">Profit check</h3>' +
       '<ul class="lines">' +
-        '<li class="big"><span>Cake profit<small>Price minus cake cost</small></span><span data-o="profit"></span></li>' +
+        '<li><span>Price used<small data-o="usedNote"></small></span><span data-o="used"></span></li>' +
+        '<li><span>Total cost</span><span data-o="cost2"></span></li>' +
+        '<li class="big"><span>PROFIT<small>Price used minus total cost</small></span><span data-o="profit"></span></li>' +
         '<li><span>Profit margin<small>Profit as a share of the price</small></span><span data-o="margin"></span></li>' +
       '</ul>';
   }
@@ -134,8 +141,9 @@
     if (el) { el.textContent = text; el.classList.toggle("neg", !!neg); }
   }
   function figures(c, fixed) {
-    var variable = sum(c.lines), cost = fixed + variable, priced = String(c.price).trim() !== "", price = num(c.price);
-    return { variable: variable, cost: cost, priced: priced, price: price, profit: price - cost, margin: price > 0 ? (price - cost) / price : null };
+    var variable = sum(c.lines), cost = fixed + variable, suggested = cost * (1 + num(c.markup) / 100);
+    var actual = String(c.price == null ? "" : c.price).trim() !== "", price = actual ? num(c.price) : suggested;   // price used
+    return { variable: variable, cost: cost, suggested: suggested, actual: actual, price: price, profit: price - cost, margin: price > 0 ? (price - cost) / price : null };
   }
   function calc() {
     var fixed = sum(state.fixed);
@@ -146,16 +154,20 @@
       set(body, "fixed", usd.format(fixed));
       set(body, "variable", usd.format(f.variable));
       set(body, "cost", usd.format(f.cost));
-      set(body, "profit", f.priced ? usd.format(f.profit) : "Enter the price", f.priced && f.profit < 0);
-      set(body, "margin", f.priced && f.margin != null ? Math.round(f.margin * 100) + "%" : "-", f.priced && f.profit < 0);
+      set(body, "cost2", usd.format(f.cost));
+      set(body, "suggested", usd.format(f.suggested));
+      set(body, "used", usd.format(f.price));
+      set(body, "usedNote", f.actual ? "The price she actually charges" : "Suggested price (no actual price entered)");
+      set(body, "profit", usd.format(f.profit), f.profit < 0);
+      set(body, "margin", f.margin != null ? Math.round(f.margin * 100) + "%" : "-", f.profit < 0);
     }
     var used = {};   // orders linked to each cake on the Orders page (same browser)
     try { (JSON.parse(localStorage.getItem("gwc-orders-v1") || "{}").orders || []).forEach(function (o) { if (o.cakeId && o.status !== "Cancelled") used[o.cakeId] = (used[o.cakeId] || 0) + 1; }); } catch (e) {}
     $("#summary").innerHTML = state.cakes.map(function (k) {
       var g = figures(k, fixed);
       return "<tr><td>" + esc(k.name || "Untitled cake") + '</td><td class="num">' + usd.format(fixed) + '</td><td class="num">' + usd.format(g.variable) +
-        '</td><td class="num out">' + usd.format(g.cost) + '</td><td class="num">' + (g.priced ? usd.format(g.price) : "-") +
-        '</td><td class="num out' + (g.priced && g.profit < 0 ? " neg" : "") + '">' + (g.priced ? usd.format(g.profit) : "-") + '</td><td class="num">' + (used[k.id] || 0) + "</td></tr>";
+        '</td><td class="num out">' + usd.format(g.cost) + '</td><td class="num">' + usd.format(g.price) +
+        '</td><td class="num out' + (g.profit < 0 ? " neg" : "") + '">' + usd.format(g.profit) + '</td><td class="num">' + (used[k.id] || 0) + "</td></tr>";
     }).join("") || '<tr><td colspan="7" class="empty">No cakes yet.</td></tr>';
   }
 
@@ -192,7 +204,7 @@
   });
   $("#cakeSel").addEventListener("change", function (e) { state.current = e.target.value; save(); renderCake(); calc(); });
   $("#addCake").addEventListener("click", function () {
-    var c = { id: uid(), name: "", lines: [], price: "" }; state.cakes.push(c); state.current = c.id; save(); renderCake(); calc(); $("#f-name").focus();
+    var c = { id: uid(), name: "", lines: [], markup: "", price: "" }; state.cakes.push(c); state.current = c.id; save(); renderCake(); calc(); $("#f-name").focus();
   });
   $("#delCake").addEventListener("click", function () {
     var c = cake(); if (!c || !confirm('Delete "' + (c.name || "Untitled cake") + '"? This cannot be undone.')) return;
